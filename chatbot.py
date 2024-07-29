@@ -1,15 +1,16 @@
-import threading
-import requests
-import json
-import time
-import os
-from flask import Flask, request, jsonify
-from dotenv import load_dotenv
+# app.py
+
 import streamlit as st
+import requests
 import base64
 import pandas as pd
 from io import BytesIO
 from PIL import Image
+from flask import Flask, request, jsonify
+import threading
+import time
+import os
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -65,86 +66,79 @@ def ask():
 
     return jsonify(all_outputs)
 
-def start_flask():
+def run_flask():
     app.run(host='0.0.0.0', port=5000)
 
-def start_streamlit():
-    st.title('Streamlit for Sales Usecase')
-    st.write('This is a Streamlit app for the Sales Usecase.')
+# Run Flask in a separate thread
+flask_thread = threading.Thread(target=run_flask)
+flask_thread.start()
 
-    # Streamlit Chatbox
-    request_url = "http://localhost:5000/ask"  # This will be used to interact with Flask
+# Streamlit app code
+st.title('Streamlit for Sales Usecase')
+st.write('This is a Streamlit app for the Sales Usecase.')
 
-    # Initialize chat history
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+# Streamlit Chatbox
+request_url = "http://localhost:5000/ask"
 
-    # Display chat history
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            if message["type"] == "text":
-                st.markdown(message["content"])
-            elif message["type"] == "image":
-                img_data = message["content"].split(",")[1]
+# Initialize chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Display chat history
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        if message["type"] == "text":
+            st.markdown(message["content"])
+        elif message["type"] == "image":
+            img_data = message["content"].split(",")[1]
+            img = Image.open(BytesIO(base64.b64decode(img_data)))
+            st.image(img)
+        elif message["type"] == "table":
+            table_df = pd.read_json(BytesIO(message["content"].encode('utf-8')))
+            st.table(table_df)
+        elif message["type"] == "json":
+            try:
+                json_data = pd.read_json(BytesIO(message["content"].encode('utf-8')))
+                st.json(json_data)
+            except ValueError:
+                st.json(message["content"])
+
+if prompt := st.chat_input("Type your Question..."):
+    # Display user message in chat message container
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    st.session_state.messages.append({"role": "user", "type": "text", "content": prompt})
+    
+    # Get response from the backend
+    try:
+        response = requests.post(request_url, json={"question": prompt}).json()
+        # Check if the response contains 'error'
+        if 'error' in response:
+            st.error(response['error'])
+            st.session_state.messages.append({"role": "bot", "type": "text", "content": response['error']})
+        else:
+            notebook_response = response[0].get("notebook_output", {}).get("result", "")
+
+            # Display bot response in chat message container
+            # Check if the response is a base64 string (assume image if it starts with 'data:image')
+            if notebook_response.startswith("data:image"):
+                img_data = notebook_response.split(",")[1]
                 img = Image.open(BytesIO(base64.b64decode(img_data)))
                 st.image(img)
-            elif message["type"] == "table":
-                table_df = pd.read_json(BytesIO(message["content"].encode('utf-8')))
-                st.table(table_df)
-            elif message["type"] == "json":
+                st.session_state.messages.append({"role": "bot", "type": "image", "content": notebook_response})
+            # Check if the response is JSON data (assume table if it starts with '{' or '[')
+            elif notebook_response.startswith("{") or notebook_response.startswith("["):
                 try:
-                    json_data = pd.read_json(BytesIO(message["content"].encode('utf-8')))
-                    st.json(json_data)
+                    response_data = pd.read_json(BytesIO(notebook_response.encode('utf-8')))
+                    st.table(response_data)
+                    st.session_state.messages.append({"role": "bot", "type": "table", "content": notebook_response})
                 except ValueError:
-                    st.json(message["content"])
-
-    if prompt := st.chat_input("Type your Question..."):
-        # Display user message in chat message container
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        st.session_state.messages.append({"role": "user", "type": "text", "content": prompt})
-        
-        # Get response from the backend
-        try:
-            response = requests.post(request_url, json={"question": prompt})
-            response.raise_for_status()  # Ensure we raise an error for bad responses
-            response_json = response.json()
-            
-            # Check if the response contains 'error'
-            if 'error' in response_json:
-                st.error(response_json['error'])
-                st.session_state.messages.append({"role": "bot", "type": "text", "content": response_json['error']})
+                    # Handle the case where JSON is not in table format
+                    st.json(notebook_response)
+                    st.session_state.messages.append({"role": "bot", "type": "json", "content": notebook_response})
             else:
-                notebook_response = response_json[0].get("notebook_output", {}).get("result", "")
-
-                # Display bot response in chat message container
-                # Check if the response is a base64 string (assume image if it starts with 'data:image')
-                if notebook_response.startswith("data:image"):
-                    img_data = notebook_response.split(",")[1]
-                    img = Image.open(BytesIO(base64.b64decode(img_data)))
-                    st.image(img)
-                    st.session_state.messages.append({"role": "bot", "type": "image", "content": notebook_response})
-                # Check if the response is JSON data (assume table if it starts with '{' or '[')
-                elif notebook_response.startswith("{") or notebook_response.startswith("["):
-                    try:
-                        response_data = pd.read_json(BytesIO(notebook_response.encode('utf-8')))
-                        st.table(response_data)
-                        st.session_state.messages.append({"role": "bot", "type": "table", "content": notebook_response})
-                    except ValueError:
-                        # Handle the case where JSON is not in table format
-                        st.json(notebook_response)
-                        st.session_state.messages.append({"role": "bot", "type": "json", "content": notebook_response})
-                else:
-                    st.markdown(notebook_response)
-                    st.session_state.messages.append({"role": "bot", "type": "text", "content": notebook_response})
-        except requests.exceptions.RequestException as e:
-            st.error(f"An error occurred: {e}")
-            st.session_state.messages.append({"role": "bot", "type": "text", "content": f"An error occurred while processing your request: {e}"})
-        except json.JSONDecodeError as e:
-            st.error(f"JSON decode error: {e}")
-            st.session_state.messages.append({"role": "bot", "type": "text", "content": f"Failed to decode JSON response: {e}"})
-
-if __name__ == '__main__':
-    flask_thread = threading.Thread(target=start_flask)
-    flask_thread.start()
-    start_streamlit()
+                st.markdown(notebook_response)
+                st.session_state.messages.append({"role": "bot", "type": "text", "content": notebook_response})
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+        st.session_state.messages.append({"role": "bot", "type": "text", "content": "An error occurred while processing your request."})
