@@ -1,11 +1,9 @@
 pybase64
 requests
-Flask
+flask
 streamlit
-pybase64
-matplotlib
-seaborn
+requests
+python-dotenv
 pandas
-requests
-mlflow
-requests
+pillow
+
