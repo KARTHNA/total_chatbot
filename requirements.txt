@@ -1,4 +1,11 @@
 pybase64
 requests
-streamlit 
-flask
+Flask
+streamlit
+pybase64
+matplotlib
+seaborn
+pandas
+requests
+mlflow
+requests
