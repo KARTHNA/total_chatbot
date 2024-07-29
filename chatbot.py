@@ -1,3 +1,5 @@
+# app.py
+
 import streamlit as st
 import requests
 import base64
@@ -21,59 +23,63 @@ app = Flask(__name__)
 
 @app.route('/ask', methods=['POST'])
 def ask():
-    question = request.json.get('question')
-    if not question:
-        return jsonify({"error": "No question provided"}), 400
+    try:
+        question = request.json.get('question')
+        if not question:
+            return jsonify({"error": "No question provided"}), 400
 
-    base_url = os.getenv("DATABRICKS_BASE_URL")
-    token = os.getenv("DATABRICKS_TOKEN")
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
-    }
-
-    logging.debug(f"Received question: {question}")
-
-    # Start the job run
-    run_now_url = f"{base_url}/jobs/run-now"
-    payload = {
-        "job_id": 1065737057597852,
-        "notebook_params": {
-            "question": question
+        base_url = os.getenv("DATABRICKS_BASE_URL")
+        token = os.getenv("DATABRICKS_TOKEN")
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
         }
-    }
-    response = requests.post(run_now_url, headers=headers, json=payload)
-    if response.status_code != 200:
-        logging.error(f"Failed to run notebook: {response.text}")
-        return jsonify({"error": "Failed to run notebook", "details": response.text}), response.status_code
 
-    run_id = response.json().get('run_id')
-    logging.debug(f"Run ID: {run_id}")
+        logging.debug(f"Received question: {question}")
 
-    # Wait for the job to complete
-    get_run_url = f"{base_url}/jobs/runs/get"
-    while True:
-        run_response = requests.get(get_run_url, headers=headers, params={"run_id": run_id})
-        run_info = run_response.json()
-        logging.debug(f"Run info: {run_info}")
-        if run_info['state']['life_cycle_state'] in ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR']:
-            break
-        time.sleep(3)  # Reduce wait time to 3 seconds
+        # Start the job run
+        run_now_url = f"{base_url}/jobs/run-now"
+        payload = {
+            "job_id": 1065737057597852,
+            "notebook_params": {
+                "question": question
+            }
+        }
+        response = requests.post(run_now_url, headers=headers, json=payload)
+        if response.status_code != 200:
+            logging.error(f"Failed to run notebook: {response.text}")
+            return jsonify({"error": "Failed to run notebook", "details": response.text}), response.status_code
 
-    # Fetch output for each task
-    get_output_url = f"{base_url}/jobs/runs/get-output"
-    all_outputs = []
-    for task in run_info['tasks']:
-        task_run_id = task['run_id']
-        output_response = requests.get(get_output_url, headers=headers, params={"run_id": task_run_id})
-        if output_response.status_code == 200:
-            all_outputs.append(output_response.json())
-        else:
-            logging.error(f"Failed to get output for task {task['task_key']}: {output_response.text}")
-            all_outputs.append({"error": f"Failed to get output for task {task['task_key']}"})
+        run_id = response.json().get('run_id')
+        logging.debug(f"Run ID: {run_id}")
 
-    logging.debug(f"All outputs: {all_outputs}")
-    return jsonify(all_outputs)
+        # Wait for the job to complete
+        get_run_url = f"{base_url}/jobs/runs/get"
+        while True:
+            run_response = requests.get(get_run_url, headers=headers, params={"run_id": run_id})
+            run_info = run_response.json()
+            logging.debug(f"Run info: {run_info}")
+            if run_info['state']['life_cycle_state'] in ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR']:
+                break
+            time.sleep(3)  # Reduce wait time to 3 seconds
+
+        # Fetch output for each task
+        get_output_url = f"{base_url}/jobs/runs/get-output"
+        all_outputs = []
+        for task in run_info['tasks']:
+            task_run_id = task['run_id']
+            output_response = requests.get(get_output_url, headers=headers, params={"run_id": task_run_id})
+            if output_response.status_code == 200:
+                all_outputs.append(output_response.json())
+            else:
+                logging.error(f"Failed to get output for task {task['task_key']}: {output_response.text}")
+                all_outputs.append({"error": f"Failed to get output for task {task['task_key']}"})
+
+        logging.debug(f"All outputs: {all_outputs}")
+        return jsonify(all_outputs)
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
+        return jsonify({"error": "An unexpected error occurred", "details": str(e)}), 500
 
 def run_flask():
     app.run(host='0.0.0.0', port=5000)
