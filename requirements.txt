@@ -1,9 +1,10 @@
-pybase64
-requests
-flask
 streamlit
 requests
-python-dotenv
 pandas
 pillow
-
+requests 
+pandas
+Flask
+pybase64
+matplotlib
+python-dotenv
